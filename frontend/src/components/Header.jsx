@@ -32,7 +32,7 @@ export const Header = () => {
           <div className="hidden lg:flex items-center space-x-6">
             <div className="flex items-center space-x-2 text-sm text-gray-600">
               <Phone className="w-4 h-4 text-emerald-600" />
-              <span>01 XX XX XX XX</span>
+              <span>06 68 06 29 70</span>
             </div>
             <div className="flex items-center space-x-2 text-sm text-gray-600">
               <MapPin className="w-4 h-4 text-emerald-600" />
