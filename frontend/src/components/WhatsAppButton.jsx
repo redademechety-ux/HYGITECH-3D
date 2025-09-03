@@ -16,8 +16,8 @@ export const WhatsAppButton = () => {
   }, []);
 
   const openWhatsApp = () => {
-    // Remplacer par le vrai numéro WhatsApp de l'entreprise
-    const phoneNumber = '33XXXXXXXXX'; // Format international sans le +
+    // Numéro WhatsApp de l'entreprise
+    const phoneNumber = '33668062970'; // Format international sans le +
     const message = encodeURIComponent(
       'Bonjour, je souhaite obtenir un devis pour vos services d\'hygiène (désinfection, désinsectisation, dératisation).'
     );
