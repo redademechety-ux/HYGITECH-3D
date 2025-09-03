@@ -35,6 +35,33 @@ class StatusCheck(BaseModel):
 class StatusCheckCreate(BaseModel):
     client_name: str
 
+# Contact Form Models
+class ContactRequest(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    email: EmailStr
+    phone: str
+    subject: str
+    message: str
+    has_pets: bool = False
+    has_vulnerable_people: bool = False
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    status: str = "nouveau"
+
+class ContactRequestCreate(BaseModel):
+    name: str
+    email: EmailStr
+    phone: str
+    subject: str
+    message: str
+    hasPets: bool = False
+    hasVulnerablePeople: bool = False
+
+class ContactResponse(BaseModel):
+    success: bool
+    message: str
+    id: str
+
 # Add your routes to the router instead of directly to app
 @api_router.get("/")
 async def root():
