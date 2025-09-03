@@ -10,12 +10,13 @@ export const companyInfo = {
     region: "Île-de-France"
   },
   contact: {
-    phone: "01 XX XX XX XX", // À remplacer par le vrai numéro
-    whatsapp: "33XXXXXXXXX", // À remplacer par le vrai numéro WhatsApp
-    email: "contact@hygitech-3d.fr" // À confirmer
+    mobile: "06 68 06 29 70",
+    phone: "01 81 89 28 86",
+    whatsapp: "33668062970",
+    email: "contact@hygitech-3d.com"
   },
   pricing: {
-    startingPrice: 99,
+    startingPrice: 130,
     currency: "EUR",
     taxIncluded: true,
     travelFees: "Variables selon la zone d'intervention"
