@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
+import axios from 'axios';
 import { Phone, Mail, MapPin, Clock, Send, CheckCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { useToast } from '../hooks/use-toast';
-import { submitContactForm } from '../data/mock';
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
 
 export const ContactSection = () => {
   const [formData, setFormData] = useState({
@@ -33,11 +36,12 @@ export const ContactSection = () => {
     setIsSubmitting(true);
 
     try {
-      const result = await submitContactForm(formData);
-      if (result.success) {
+      const response = await axios.post(`${API}/contact`, formData);
+      
+      if (response.data.success) {
         toast({
           title: "Demande envoyée !",
-          description: result.message,
+          description: response.data.message,
         });
         // Reset form
         setFormData({
@@ -51,9 +55,11 @@ export const ContactSection = () => {
         });
       }
     } catch (error) {
+      console.error('Contact form error:', error);
+      const errorMessage = error.response?.data?.detail || "Une erreur s'est produite. Veuillez réessayer.";
       toast({
         title: "Erreur",
-        description: "Une erreur s'est produite. Veuillez réessayer.",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
