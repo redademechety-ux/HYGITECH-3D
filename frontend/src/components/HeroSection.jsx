@@ -67,7 +67,7 @@ export const HeroSection = () => {
                 variant="outline"
                 size="lg"
                 className="border-emerald-600 text-emerald-600 hover:bg-emerald-50 px-8 py-4 text-lg"
-                onClick={() => window.open('https://wa.me/33XXXXXXXXX', '_blank')}
+                onClick={() => window.open('https://wa.me/33668062970', '_blank')}
               >
                 WhatsApp
               </Button>
