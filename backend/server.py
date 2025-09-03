@@ -79,6 +79,49 @@ async def get_status_checks():
     status_checks = await db.status_checks.find().to_list(1000)
     return [StatusCheck(**status_check) for status_check in status_checks]
 
+# Contact Form Endpoints
+@api_router.post("/contact", response_model=ContactResponse)
+async def create_contact_request(contact_data: ContactRequestCreate):
+    try:
+        # Convert frontend field names to backend field names
+        contact_dict = contact_data.dict()
+        contact_dict['has_pets'] = contact_dict.pop('hasPets')
+        contact_dict['has_vulnerable_people'] = contact_dict.pop('hasVulnerablePeople')
+        
+        # Create contact request object
+        contact_obj = ContactRequest(**contact_dict)
+        
+        # Save to database
+        result = await db.contact_requests.insert_one(contact_obj.dict())
+        
+        if result.inserted_id:
+            logger.info(f"New contact request created: {contact_obj.id}")
+            return ContactResponse(
+                success=True,
+                message="Votre demande a été envoyée avec succès. Nous vous recontacterons sous 24h.",
+                id=contact_obj.id
+            )
+        else:
+            raise HTTPException(status_code=500, detail="Erreur lors de la sauvegarde")
+            
+    except Exception as e:
+        logger.error(f"Error creating contact request: {str(e)}")
+        raise HTTPException(status_code=500, detail="Une erreur interne s'est produite")
+
+@api_router.get("/contact", response_model=List[ContactRequest])
+async def get_contact_requests(status: Optional[str] = None):
+    """Endpoint pour récupérer les demandes de contact (usage admin)"""
+    try:
+        filter_query = {}
+        if status:
+            filter_query["status"] = status
+            
+        contact_requests = await db.contact_requests.find(filter_query).sort("created_at", -1).to_list(1000)
+        return [ContactRequest(**request) for request in contact_requests]
+    except Exception as e:
+        logger.error(f"Error fetching contact requests: {str(e)}")
+        raise HTTPException(status_code=500, detail="Erreur lors de la récupération des données")
+
 # Include the router in the main app
 app.include_router(api_router)
 
