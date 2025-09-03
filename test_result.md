@@ -153,7 +153,6 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Contact Form API"
     - "Formulaire de contact intégré"
   stuck_tasks: []
   test_all: false
