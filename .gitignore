@@ -122,4 +122,7 @@ mongodump/
 *.csr
 
 # Local development
-.local/
+.local/-e 
+# Environment files
+*.env
+*.env.*
