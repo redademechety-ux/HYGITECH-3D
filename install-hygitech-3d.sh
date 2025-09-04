@@ -279,12 +279,12 @@ setup_backend() {
     sudo -u $APP_USER bash -c "source venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt"
     
     # Configuration .env pour production
-    cat > .env << EOF
+    cat > .env << 'BACKEND_ENV'
 MONGO_URL=mongodb://localhost:27017
-DB_NAME=$MONGO_DB
+DB_NAME=hygitech3d_production
 ENVIRONMENT=production
-PORT=$BACKEND_PORT
-EOF
+PORT=8002
+BACKEND_ENV
     
     chown $APP_USER:$APP_USER .env
     
@@ -297,9 +297,9 @@ setup_frontend() {
     cd $APP_DIR/frontend
     
     # Configuration environnement de production
-    cat > .env.production << EOF
-REACT_APP_BACKEND_URL=https://$DOMAIN
-EOF
+    cat > .env.production << 'FRONTEND_ENV'
+REACT_APP_BACKEND_URL=https://hygitech-3d.com
+FRONTEND_ENV
     
     # Installation des dépendances avec timeout étendu
     log_info "Installation des dépendances frontend (peut prendre 5-10 minutes)..."
@@ -323,26 +323,26 @@ setup_pm2() {
     log_info "Configuration PM2 pour HYGITECH-3D..."
     
     # Configuration PM2
-    cat > $APP_DIR/ecosystem.config.js << EOF
+    cat > $APP_DIR/ecosystem.config.js << 'PM2_CONFIG'
 module.exports = {
   apps: [{
     name: 'hygitech-3d-backend',
     script: 'venv/bin/uvicorn',
-    args: 'server:app --host 0.0.0.0 --port $BACKEND_PORT',
-    cwd: '$APP_DIR/backend',
+    args: 'server:app --host 0.0.0.0 --port 8002',
+    cwd: '/var/www/hygitech-3d/backend',
     instances: 1,
     env: {
       NODE_ENV: 'production',
-      PORT: '$BACKEND_PORT'
+      PORT: '8002'
     },
-    error_file: '$APP_DIR/logs/backend-error.log',
-    out_file: '$APP_DIR/logs/backend-out.log',
-    log_file: '$APP_DIR/logs/backend-combined.log',
+    error_file: '/var/www/hygitech-3d/logs/backend-error.log',
+    out_file: '/var/www/hygitech-3d/logs/backend-out.log',
+    log_file: '/var/www/hygitech-3d/logs/backend-combined.log',
     time: true,
     max_memory_restart: '1G'
   }]
 }
-EOF
+PM2_CONFIG
     
     chown $APP_USER:$APP_USER $APP_DIR/ecosystem.config.js
     
@@ -367,16 +367,16 @@ setup_nginx() {
     rm -f /etc/nginx/sites-enabled/default
     
     # Configuration du site
-    cat > /etc/nginx/sites-available/$SITE_NAME << EOF
+    cat > /etc/nginx/sites-available/$SITE_NAME << 'NGINX_CONFIG'
 server {
     listen 80;
-    server_name $DOMAIN www.$DOMAIN;
+    server_name hygitech-3d.com www.hygitech-3d.com;
     
     # Frontend React
     location / {
-        root $APP_DIR/frontend/build;
+        root /var/www/hygitech-3d/frontend/build;
         index index.html;
-        try_files \$uri \$uri/ /index.html;
+        try_files $uri $uri/ /index.html;
         
         # Cache pour les assets statiques
         location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
@@ -393,15 +393,15 @@ server {
     
     # Backend API FastAPI
     location /api {
-        proxy_pass http://localhost:$BACKEND_PORT;
+        proxy_pass http://localhost:8002;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
         
         # Timeouts
         proxy_connect_timeout 60s;
@@ -415,7 +415,7 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "no-referrer-when-downgrade" always;
 }
-EOF
+NGINX_CONFIG
     
     # Activation du site
     ln -sf /etc/nginx/sites-available/$SITE_NAME /etc/nginx/sites-enabled/
@@ -463,7 +463,7 @@ create_maintenance_scripts() {
     log_info "Création des scripts de maintenance..."
     
     # Script de statut
-    cat > $APP_DIR/scripts/status.sh << 'EOF'
+    cat > $APP_DIR/scripts/status.sh << 'STATUS_SCRIPT'
 #!/bin/bash
 echo "📊 STATUS HYGITECH-3D"
 echo "===================="
@@ -492,10 +492,10 @@ if [[ -f "/etc/letsencrypt/live/hygitech-3d.com/fullchain.pem" ]]; then
 else
     echo "  - SSL: ❌ Non configuré"
 fi
-EOF
+STATUS_SCRIPT
     
     # Script de sauvegarde MongoDB
-    cat > $APP_DIR/scripts/backup-mongo.sh << 'EOF'
+    cat > $APP_DIR/scripts/backup-mongo.sh << 'BACKUP_SCRIPT'
 #!/bin/bash
 DATE=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR="/var/backups/mongodb"
@@ -508,10 +508,10 @@ mongodump --db hygitech3d_production --out $BACKUP_DIR/$DATE
 find $BACKUP_DIR -mtime +7 -delete
 
 echo "✅ Sauvegarde terminée: $BACKUP_DIR/$DATE"
-EOF
+BACKUP_SCRIPT
     
     # Script de mise à jour
-    cat > $APP_DIR/scripts/update.sh << 'EOF'
+    cat > $APP_DIR/scripts/update.sh << 'UPDATE_SCRIPT'
 #!/bin/bash
 cd /var/www/hygitech-3d
 
@@ -539,7 +539,7 @@ sudo -u web-hygitech-3d pm2 restart hygitech-3d-backend
 sudo systemctl reload nginx
 
 echo "✅ Mise à jour terminée !"
-EOF
+UPDATE_SCRIPT
     
     chmod +x $APP_DIR/scripts/*.sh
     chown -R $APP_USER:$APP_USER $APP_DIR/scripts
