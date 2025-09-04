@@ -139,52 +139,88 @@ install_system_dependencies() {
         log_success "Python déjà installé: $(python3 --version)"
     fi
     
-    # Installation MongoDB (méthode moderne avec gestion Ubuntu 24.04+)
+    # Installation MongoDB (méthode moderne avec correction Ubuntu 24.04+)
     if ! systemctl is-active --quiet mongod 2>/dev/null; then
         log_info "Installation de MongoDB 6.0..."
         
         # Détection de la version Ubuntu pour compatibilité
         UBUNTU_CODENAME=$(lsb_release -cs)
-        log_info "Version Ubuntu détectée: $UBUNTU_CODENAME"
+        UBUNTU_VERSION=$(lsb_release -rs)
+        log_info "Ubuntu détecté: $UBUNTU_VERSION ($UBUNTU_CODENAME)"
         
-        # Correction pour Ubuntu 24.04+ qui n'a pas de repository MongoDB officiel
-        case $UBUNTU_CODENAME in
-            "plucky"|"oracular"|"noble")
-                log_warning "Ubuntu 24.04+ détecté, utilisation du repository Ubuntu 22.04 (jammy)"
-                MONGO_CODENAME="jammy"
-                ;;
-            *)
-                MONGO_CODENAME="$UBUNTU_CODENAME"
-                ;;
-        esac
-        
-        # Nettoyage des anciennes clés et repositories
-        rm -f /etc/apt/keyrings/mongodb-server-*.gpg
-        rm -f /etc/apt/sources.list.d/mongodb-org-*.list
-        
-        # Installation de la clé GPG MongoDB
-        curl -fsSL https://www.mongodb.org/static/pgp/server-6.0.asc | gpg --dearmor -o /etc/apt/keyrings/mongodb-server-6.0.gpg
-        
-        # Ajout du repository MongoDB avec codename corrigé
-        echo "deb [ arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-6.0.gpg ] https://repo.mongodb.org/apt/ubuntu $MONGO_CODENAME/mongodb-org/6.0 multiverse" > /etc/apt/sources.list.d/mongodb-org-6.0.list
-        
-        log_info "Repository MongoDB configuré pour: $MONGO_CODENAME"
-        
-        # Mise à jour et installation
-        apt update
-        
-        # Vérification que le repository est accessible
-        if ! apt-cache policy mongodb-org > /dev/null 2>&1; then
-            log_warning "Repository MongoDB indisponible, installation via snap"
+        # Force l'utilisation de jammy pour Ubuntu 24.04+ car MongoDB ne supporte pas encore ces versions
+        if [[ "$UBUNTU_CODENAME" == "plucky" ]] || [[ "$UBUNTU_CODENAME" == "oracular" ]] || [[ "$UBUNTU_CODENAME" == "noble" ]] || [[ "${UBUNTU_VERSION%%.*}" -ge 24 ]]; then
+            log_warning "Ubuntu 24.04+ détecté - MongoDB non supporté officiellement"
+            log_info "Installation alternative via repository Ubuntu 22.04 ou Snap"
             
-            # Installation via snap comme alternative
-            apt install -y snapd
-            snap install mongodb --edge
+            # Tentative 1: Utiliser le repository jammy
+            MONGO_CODENAME="jammy"
+            log_info "Tentative avec repository jammy (Ubuntu 22.04)..."
             
-            # Créer un service systemd pour MongoDB snap
-            cat > /etc/systemd/system/mongod.service << 'MONGO_SERVICE'
+            # Nettoyage complet des anciennes configurations
+            rm -f /etc/apt/keyrings/mongodb-server-*.gpg
+            rm -f /etc/apt/sources.list.d/mongodb-org-*.list
+            apt update
+            
+            # Installation de la clé GPG MongoDB
+            curl -fsSL https://www.mongodb.org/static/pgp/server-6.0.asc | gpg --dearmor -o /etc/apt/keyrings/mongodb-server-6.0.gpg
+            
+            # Ajout du repository MongoDB avec jammy forcé
+            echo "deb [ arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-6.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/6.0 multiverse" > /etc/apt/sources.list.d/mongodb-org-6.0.list
+            
+            # Test du repository
+            apt update
+            if apt-cache policy mongodb-org > /dev/null 2>&1; then
+                log_success "Repository MongoDB jammy accessible"
+                apt install -y mongodb-org
+                systemctl start mongod
+                systemctl enable mongod
+            else
+                log_warning "Repository MongoDB jammy inaccessible, passage à l'installation Snap"
+                
+                # Tentative 2: Installation via Snap
+                rm -f /etc/apt/sources.list.d/mongodb-org-6.0.list
+                apt update
+                
+                # Installation de snapd si pas présent
+                if ! command -v snap &> /dev/null; then
+                    apt install -y snapd
+                    systemctl enable snapd
+                    systemctl start snapd
+                    # Attendre que snapd soit prêt
+                    sleep 10
+                fi
+                
+                # Installation MongoDB via snap
+                snap install mongodb --edge
+                
+                # Configuration du service systemd pour MongoDB snap
+                mkdir -p /var/snap/mongodb/current
+                cat > /var/snap/mongodb/current/mongodb.conf << 'MONGO_SNAP_CONFIG'
+# MongoDB configuration file for snap
+storage:
+  dbPath: /var/snap/mongodb/current/db
+  journal:
+    enabled: true
+
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/snap/mongodb/current/mongod.log
+
+net:
+  port: 27017
+  bindIp: 127.0.0.1
+
+processManagement:
+  fork: true
+  pidFilePath: /var/snap/mongodb/current/mongod.pid
+MONGO_SNAP_CONFIG
+                
+                # Service systemd pour MongoDB snap
+                cat > /etc/systemd/system/mongod.service << 'MONGO_SNAP_SERVICE'
 [Unit]
-Description=MongoDB Database Server
+Description=MongoDB Database Server (Snap)
 Documentation=https://docs.mongodb.org/manual
 After=network-online.target
 Wants=network-online.target
@@ -196,20 +232,35 @@ ExecStart=/snap/bin/mongodb.mongod --config /var/snap/mongodb/current/mongodb.co
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=10
-StandardOutput=syslog
-StandardError=syslog
+StandardOutput=journal
+StandardError=journal
+PIDFile=/var/snap/mongodb/current/mongod.pid
 
 [Install]
 WantedBy=multi-user.target
-MONGO_SERVICE
-            
-            systemctl daemon-reload
-            systemctl enable mongod
-            systemctl start mongod
+MONGO_SNAP_SERVICE
+                
+                systemctl daemon-reload
+                systemctl enable mongod
+                systemctl start mongod
+            fi
             
         else
-            # Installation normale via apt
-            apt install -y mongodb-org
+            # Ubuntu 22.04 et versions antérieures supportées
+            log_info "Ubuntu $UBUNTU_VERSION supporté par MongoDB"
+            MONGO_CODENAME="$UBUNTU_CODENAME"
+            
+            # Nettoyage des anciennes configurations
+            rm -f /etc/apt/keyrings/mongodb-server-*.gpg
+            rm -f /etc/apt/sources.list.d/mongodb-org-*.list
+            
+            # Installation de la clé GPG MongoDB
+            curl -fsSL https://www.mongodb.org/static/pgp/server-6.0.asc | gpg --dearmor -o /etc/apt/keyrings/mongodb-server-6.0.gpg
+            
+            # Ajout du repository MongoDB
+            echo "deb [ arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-6.0.gpg ] https://repo.mongodb.org/apt/ubuntu $MONGO_CODENAME/mongodb-org/6.0 multiverse" > /etc/apt/sources.list.d/mongodb-org-6.0.list
+            
+            apt update && apt install -y mongodb-org
             
             # Configuration et démarrage
             systemctl start mongod
@@ -217,32 +268,54 @@ MONGO_SERVICE
         fi
         
         # Attendre que MongoDB soit prêt
-        sleep 15
+        log_info "Attente du démarrage de MongoDB..."
+        sleep 20
         
         # Test de MongoDB avec plusieurs tentatives
         MONGO_READY=false
-        for i in {1..5}; do
+        for i in {1..6}; do
             if systemctl is-active --quiet mongod; then
                 MONGO_READY=true
+                log_success "MongoDB démarré avec succès"
                 break
             fi
-            log_info "Tentative $i/5 - Attente MongoDB..."
-            sleep 5
+            log_info "Tentative $i/6 - Attente MongoDB..."
+            sleep 10
         done
         
-        if [ "$MONGO_READY" = true ]; then
-            log_success "MongoDB installé et démarré"
-        else
-            log_error "Problème avec MongoDB après 5 tentatives"
-            systemctl status mongod
-            
-            # Tentative de diagnostic
+        if [ "$MONGO_READY" = false ]; then
+            log_error "MongoDB ne démarre pas après plusieurs tentatives"
             log_info "Diagnostic MongoDB:"
-            which mongod || which mongodb.mongod || echo "MongoDB binaire non trouvé"
-            ls -la /var/log/mongodb/ || echo "Pas de logs MongoDB"
+            systemctl status mongod || systemctl status mongodb
             
-            exit 1
+            # Tentative de démarrage manuel pour diagnostic
+            log_info "Tentative de diagnostic approfondi..."
+            which mongod mongosh mongo 2>/dev/null || echo "Binaires MongoDB non trouvés"
+            ls -la /var/log/mongodb/ 2>/dev/null || echo "Répertoire logs MongoDB non trouvé"
+            
+            # Tentative finale avec MongoDB Community via wget
+            log_warning "Tentative d'installation manuelle MongoDB..."
+            
+            # Téléchargement direct du package MongoDB
+            cd /tmp
+            wget -q https://repo.mongodb.org/apt/ubuntu/dists/jammy/mongodb-org/6.0/multiverse/binary-amd64/mongodb-org-server_6.0.5_amd64.deb
+            if [[ -f "mongodb-org-server_6.0.5_amd64.deb" ]]; then
+                dpkg -i mongodb-org-server_6.0.5_amd64.deb || apt-get install -f -y
+                systemctl start mongod
+                systemctl enable mongod
+                sleep 10
+                if systemctl is-active --quiet mongod; then
+                    log_success "MongoDB installé manuellement avec succès"
+                    MONGO_READY=true
+                fi
+            fi
+            
+            if [ "$MONGO_READY" = false ]; then
+                log_error "Impossible d'installer MongoDB. Installation interrompue."
+                exit 1
+            fi
         fi
+        
     else
         log_success "MongoDB déjà installé et actif"
     fi
