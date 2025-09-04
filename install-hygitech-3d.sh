@@ -352,13 +352,37 @@ download_source_code() {
             sudo -u $APP_USER git pull origin main || sudo -u $APP_USER git pull origin master
         else
             log_info "Clone du repository depuis GitHub..."
-            # Clone directement dans le répertoire cible
-            sudo -u $APP_USER git clone $GITHUB_REPO $APP_DIR/temp
-            if [[ $? -eq 0 ]]; then
-                sudo -u $APP_USER cp -r $APP_DIR/temp/* $APP_DIR/
-                sudo -u $APP_USER cp -r $APP_DIR/temp/.* $APP_DIR/ 2>/dev/null || true
-                rm -rf $APP_DIR/temp
-                log_success "Code cloné depuis GitHub"
+            
+            # Créer un répertoire temporaire pour le clone
+            TEMP_DIR="/tmp/hygitech-clone-$$"
+            
+            # Clone dans le répertoire temporaire
+            if sudo -u $APP_USER git clone $GITHUB_REPO $TEMP_DIR; then
+                log_info "Clone réussi, déplacement des fichiers..."
+                
+                # Déplacer le contenu du repository vers le répertoire final
+                sudo -u $APP_USER cp -r $TEMP_DIR/* $APP_DIR/ 2>/dev/null || true
+                sudo -u $APP_USER cp -r $TEMP_DIR/.* $APP_DIR/ 2>/dev/null || true
+                
+                # Nettoyer le répertoire temporaire
+                rm -rf $TEMP_DIR
+                
+                # Vérifier que les fichiers sont bien placés
+                if [[ -d "$APP_DIR/frontend" && -d "$APP_DIR/backend" ]]; then
+                    log_success "Code cloné depuis GitHub avec succès"
+                else
+                    log_warning "Structure inattendue après clone, tentative de correction..."
+                    
+                    # Vérifier s'il y a un sous-dossier avec le nom du repo
+                    REPO_NAME=$(basename $GITHUB_REPO .git)
+                    if [[ -d "$APP_DIR/$REPO_NAME" ]]; then
+                        log_info "Correction de la structure des dossiers..."
+                        sudo -u $APP_USER mv $APP_DIR/$REPO_NAME/* $APP_DIR/ 2>/dev/null || true
+                        sudo -u $APP_USER mv $APP_DIR/$REPO_NAME/.* $APP_DIR/ 2>/dev/null || true
+                        sudo -u $APP_USER rmdir $APP_DIR/$REPO_NAME 2>/dev/null || true
+                        log_success "Structure des dossiers corrigée"
+                    fi
+                fi
             else
                 log_error "Échec du clone GitHub"
                 GITHUB_REPO=""
@@ -378,18 +402,34 @@ download_source_code() {
         echo ""
         echo "Ou utilisez MobaXterm/FileZilla pour glisser-déposer les dossiers"
         echo ""
+        echo "Si les dossiers sont dans un sous-répertoire (ex: $APP_DIR/hygitech-3d/), utilisez :"
+        echo "  cd $APP_DIR && mv hygitech-3d/* . && mv hygitech-3d/.* . 2>/dev/null || true && rmdir hygitech-3d"
+        echo ""
         read -p "Appuyez sur Entrée une fois les fichiers copiés dans $APP_DIR..."
     fi
     
-    # Vérification des fichiers essentiels
+    # Vérification finale des fichiers essentiels
     if [[ ! -d "$APP_DIR/frontend" ]]; then
         log_error "Répertoire frontend/ manquant dans $APP_DIR"
+        log_info "Structure actuelle :"
         ls -la $APP_DIR
-        exit 1
+        
+        # Tentative de correction automatique si structure imbriquée
+        REPO_NAME=$(basename ${GITHUB_REPO:-"hygitech-3d"} .git)
+        if [[ -d "$APP_DIR/$REPO_NAME/frontend" ]]; then
+            log_info "Détection structure imbriquée, correction automatique..."
+            sudo -u $APP_USER mv $APP_DIR/$REPO_NAME/* $APP_DIR/ 2>/dev/null || true
+            sudo -u $APP_USER mv $APP_DIR/$REPO_NAME/.* $APP_DIR/ 2>/dev/null || true
+            sudo -u $APP_USER rmdir $APP_DIR/$REPO_NAME 2>/dev/null || true
+            log_success "Structure corrigée automatiquement"
+        else
+            exit 1
+        fi
     fi
     
     if [[ ! -d "$APP_DIR/backend" ]]; then
         log_error "Répertoire backend/ manquant dans $APP_DIR"
+        log_info "Structure actuelle :"
         ls -la $APP_DIR
         exit 1
     fi
