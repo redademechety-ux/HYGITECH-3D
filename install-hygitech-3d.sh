@@ -130,13 +130,49 @@ install_system_dependencies() {
         log_success "PM2 déjà installé"
     fi
     
-    # Installation Python
+    # Installation Python avec gestion des versions spécifiques
     if ! command -v python3 &> /dev/null; then
         log_info "Installation de Python 3..."
         apt install -y python3 python3-pip python3-venv python3-dev
         log_success "Python installé"
     else
         log_success "Python déjà installé: $(python3 --version)"
+        
+        # Vérification et installation des packages manquants pour la version spécifique
+        PYTHON_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2 | cut -d'.' -f1,2)
+        log_info "Version Python détectée: $PYTHON_VERSION"
+        
+        # Installation des packages venv spécifiques à la version
+        case $PYTHON_VERSION in
+            "3.13")
+                log_info "Installation des packages Python 3.13..."
+                apt install -y python3.13-venv python3.13-dev python3-pip
+                ;;
+            "3.12")
+                log_info "Installation des packages Python 3.12..."
+                apt install -y python3.12-venv python3.12-dev python3-pip
+                ;;
+            "3.11")
+                log_info "Installation des packages Python 3.11..."
+                apt install -y python3.11-venv python3.11-dev python3-pip
+                ;;
+            "3.10")
+                log_info "Installation des packages Python 3.10..."
+                apt install -y python3.10-venv python3.10-dev python3-pip
+                ;;
+            *)
+                log_info "Installation des packages Python génériques..."
+                apt install -y python3-venv python3-dev python3-pip
+                ;;
+        esac
+        
+        # Vérification que python3-venv fonctionne
+        if ! python3 -m venv --help >/dev/null 2>&1; then
+            log_warning "python3-venv ne fonctionne pas, installation forcée de tous les packages..."
+            apt install -y python3-venv python3.13-venv python3.12-venv python3.11-venv python3.10-venv 2>/dev/null || true
+        fi
+        
+        log_success "Packages Python venv installés"
     fi
     
     # Installation MongoDB (méthode moderne avec correction Ubuntu 24.04+)
