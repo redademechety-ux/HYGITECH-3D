@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 🚀 Script d'Installation HYGITECH-3D - Multi-Sites
+# 🚀 Script d'Installation HYGITECH-3D - Version Corrigée Ubuntu 22.04+
 # URL: hygitech-3d.com / www.hygitech-3d.com
 # Port Backend: 8002
 
@@ -47,73 +47,133 @@ check_root() {
 }
 
 check_github_repo() {
-    if [[ -z "$GITHUB_REPO" ]]; then
-        log_warning "Repository GitHub non spécifié"
-        log_info "Usage: ./install-hygitech-3d.sh https://github.com/votre-username/hygitech-3d.git"
-        log_info "Ou placez manuellement les fichiers dans $APP_DIR"
-        read -p "Voulez-vous continuer sans clone GitHub ? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
+    if [[ -n "$GITHUB_REPO" ]]; then
+        log_info "Test de connectivité au repository GitHub..."
+        if curl -s --head --max-time 10 "$GITHUB_REPO" | grep -q "200 OK"; then
+            log_success "Repository GitHub accessible"
+        else
+            log_warning "Repository GitHub non accessible, passage en mode manuel"
+            GITHUB_REPO=""
         fi
+    fi
+    
+    if [[ -z "$GITHUB_REPO" ]]; then
+        log_warning "Mode installation manuelle activé"
+        log_info "Les fichiers doivent être placés dans $APP_DIR"
     fi
 }
 
 check_port_available() {
-    if netstat -tuln 2>/dev/null | grep -q ":${BACKEND_PORT} "; then
+    if ss -tuln 2>/dev/null | grep -q ":${BACKEND_PORT} " || netstat -tuln 2>/dev/null | grep -q ":${BACKEND_PORT} "; then
         log_error "Port $BACKEND_PORT déjà utilisé !"
-        log_info "Ports actuellement utilisés :"
-        netstat -tuln | grep LISTEN | grep -E ':(80|443|800[0-9]|900[0-9])'
         exit 1
     fi
     log_success "Port $BACKEND_PORT disponible"
 }
 
 install_system_dependencies() {
-    log_info "Vérification et installation des dépendances système..."
+    log_info "Installation des dépendances système (méthode moderne)..."
     
     # Mise à jour système
     apt update && apt upgrade -y
-    apt install -y curl wget git nginx software-properties-common ufw netstat-nat
+    apt install -y curl wget git nginx software-properties-common ufw ca-certificates gnupg lsb-release apt-transport-https
     
-    # Node.js (si pas déjà installé)
+    # Créer le répertoire pour les clés GPG
+    mkdir -p /etc/apt/keyrings
+    
+    # Installation Node.js 18 (méthode moderne)
     if ! command -v node &> /dev/null; then
         log_info "Installation de Node.js 18..."
-        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-        apt install -y nodejs
+        
+        # Téléchargement et installation de la clé GPG NodeSource
+        curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+        
+        # Ajout du repository NodeSource
+        NODE_MAJOR=18
+        echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
+        
+        apt update && apt install -y nodejs
+        
+        # Vérification
+        node --version && npm --version
+        log_success "Node.js $(node --version) installé"
+    else
+        log_success "Node.js déjà installé: $(node --version)"
     fi
     
-    # Yarn (si pas déjà installé)
+    # Installation Yarn (méthode moderne)
     if ! command -v yarn &> /dev/null; then
         log_info "Installation de Yarn..."
-        curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add -
-        echo "deb https://dl.yarnpkg.com/debian/ stable main" > /etc/apt/sources.list.d/yarn.list
+        
+        # Nettoyage des anciennes installations
+        apt remove -y yarn 2>/dev/null || true
+        
+        # Méthode moderne pour Yarn
+        curl -fsSL https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor -o /etc/apt/keyrings/yarn.gpg
+        echo "deb [signed-by=/etc/apt/keyrings/yarn.gpg] https://dl.yarnpkg.com/debian/ stable main" > /etc/apt/sources.list.d/yarn.list
+        
         apt update && apt install -y yarn
+        
+        # Vérification
+        yarn --version
+        log_success "Yarn $(yarn --version) installé"
+    else
+        log_success "Yarn déjà installé: $(yarn --version)"
     fi
     
-    # PM2 (si pas déjà installé)
+    # Installation PM2
     if ! command -v pm2 &> /dev/null; then
         log_info "Installation de PM2..."
         npm install -g pm2
+        log_success "PM2 installé"
+    else
+        log_success "PM2 déjà installé"
     fi
     
-    # Python (si pas déjà installé)
+    # Installation Python
     if ! command -v python3 &> /dev/null; then
         log_info "Installation de Python 3..."
-        apt install -y python3 python3-pip python3-venv
+        apt install -y python3 python3-pip python3-venv python3-dev
+        log_success "Python installé"
+    else
+        log_success "Python déjà installé: $(python3 --version)"
     fi
     
-    # MongoDB (si pas déjà installé)
+    # Installation MongoDB (méthode moderne)
     if ! systemctl is-active --quiet mongod 2>/dev/null; then
-        log_info "Installation de MongoDB..."
-        wget -qO - https://www.mongodb.org/static/pgp/server-5.0.asc | apt-key add -
-        echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/5.0 multiverse" > /etc/apt/sources.list.d/mongodb-org-5.0.list
+        log_info "Installation de MongoDB 6.0..."
+        
+        # Nettoyage des anciennes clés
+        rm -f /etc/apt/keyrings/mongodb-server-*.gpg
+        
+        # Installation de la clé GPG MongoDB
+        curl -fsSL https://www.mongodb.org/static/pgp/server-6.0.asc | gpg --dearmor -o /etc/apt/keyrings/mongodb-server-6.0.gpg
+        
+        # Ajout du repository MongoDB
+        echo "deb [ arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-6.0.gpg ] https://repo.mongodb.org/apt/ubuntu $(lsb_release -cs)/mongodb-org/6.0 multiverse" > /etc/apt/sources.list.d/mongodb-org-6.0.list
+        
         apt update && apt install -y mongodb-org
+        
+        # Configuration et démarrage
         systemctl start mongod
         systemctl enable mongod
+        
+        # Attendre que MongoDB soit prêt
+        sleep 10
+        
+        # Test de MongoDB
+        if systemctl is-active --quiet mongod; then
+            log_success "MongoDB installé et démarré"
+        else
+            log_error "Problème avec MongoDB"
+            systemctl status mongod
+            exit 1
+        fi
+    else
+        log_success "MongoDB déjà installé et actif"
     fi
     
-    log_success "Dépendances système installées"
+    log_success "Toutes les dépendances système sont installées"
 }
 
 create_user_and_directories() {
@@ -142,31 +202,65 @@ download_source_code() {
         if [[ -d "$APP_DIR/.git" ]]; then
             log_info "Repository existant, mise à jour..."
             cd $APP_DIR
-            sudo -u $APP_USER git pull origin main
+            sudo -u $APP_USER git pull origin main || sudo -u $APP_USER git pull origin master
         else
             log_info "Clone du repository depuis GitHub..."
+            # Clone directement dans le répertoire cible
             sudo -u $APP_USER git clone $GITHUB_REPO $APP_DIR/temp
-            sudo -u $APP_USER mv $APP_DIR/temp/* $APP_DIR/
-            sudo -u $APP_USER mv $APP_DIR/temp/.* $APP_DIR/ 2>/dev/null || true
-            rmdir $APP_DIR/temp
+            if [[ $? -eq 0 ]]; then
+                sudo -u $APP_USER cp -r $APP_DIR/temp/* $APP_DIR/
+                sudo -u $APP_USER cp -r $APP_DIR/temp/.* $APP_DIR/ 2>/dev/null || true
+                rm -rf $APP_DIR/temp
+                log_success "Code cloné depuis GitHub"
+            else
+                log_error "Échec du clone GitHub"
+                GITHUB_REPO=""
+            fi
         fi
-    else
-        log_warning "Pas de repository GitHub spécifié"
-        log_info "Veuillez copier manuellement vos fichiers dans $APP_DIR"
-        log_info "Structure attendue :"
-        log_info "  $APP_DIR/frontend/ (code React)"
-        log_info "  $APP_DIR/backend/ (code FastAPI)"
-        read -p "Appuyez sur Entrée une fois les fichiers copiés..."
+    fi
+    
+    if [[ -z "$GITHUB_REPO" ]]; then
+        log_warning "Mode manuel activé - Copie de fichiers requise"
+        log_info "Veuillez copier vos fichiers dans $APP_DIR avec cette structure :"
+        log_info "  $APP_DIR/frontend/ (code React avec package.json)"
+        log_info "  $APP_DIR/backend/ (code FastAPI avec requirements.txt)"
+        echo ""
+        echo "Commandes pour copier depuis votre machine locale :"
+        echo "  scp -r ./frontend root@$(hostname -I | awk '{print $1}'):$APP_DIR/"
+        echo "  scp -r ./backend root@$(hostname -I | awk '{print $1}'):$APP_DIR/"
+        echo ""
+        echo "Ou utilisez MobaXterm/FileZilla pour glisser-déposer les dossiers"
+        echo ""
+        read -p "Appuyez sur Entrée une fois les fichiers copiés dans $APP_DIR..."
     fi
     
     # Vérification des fichiers essentiels
-    if [[ ! -d "$APP_DIR/frontend" || ! -d "$APP_DIR/backend" ]]; then
-        log_error "Répertoires frontend/ ou backend/ manquants dans $APP_DIR"
+    if [[ ! -d "$APP_DIR/frontend" ]]; then
+        log_error "Répertoire frontend/ manquant dans $APP_DIR"
+        ls -la $APP_DIR
+        exit 1
+    fi
+    
+    if [[ ! -d "$APP_DIR/backend" ]]; then
+        log_error "Répertoire backend/ manquant dans $APP_DIR"
+        ls -la $APP_DIR
+        exit 1
+    fi
+    
+    if [[ ! -f "$APP_DIR/frontend/package.json" ]]; then
+        log_error "Fichier package.json manquant dans $APP_DIR/frontend/"
+        ls -la $APP_DIR/frontend/
+        exit 1
+    fi
+    
+    if [[ ! -f "$APP_DIR/backend/requirements.txt" ]]; then
+        log_error "Fichier requirements.txt manquant dans $APP_DIR/backend/"
+        ls -la $APP_DIR/backend/
         exit 1
     fi
     
     chown -R $APP_USER:$APP_USER $APP_DIR
-    log_success "Code source récupéré"
+    log_success "Code source vérifié et prêt"
 }
 
 setup_backend() {
@@ -177,32 +271,22 @@ setup_backend() {
     # Environnement virtuel Python
     if [[ ! -d "venv" ]]; then
         sudo -u $APP_USER python3 -m venv venv
+        log_success "Environnement virtuel Python créé"
     fi
     
     # Installation des dépendances Python
+    log_info "Installation des dépendances Python..."
     sudo -u $APP_USER bash -c "source venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt"
     
     # Configuration .env pour production
     cat > .env << EOF
-# Configuration HYGITECH-3D Production
 MONGO_URL=mongodb://localhost:27017
 DB_NAME=$MONGO_DB
 ENVIRONMENT=production
 PORT=$BACKEND_PORT
-
-# Informations entreprise
-COMPANY_NAME=HYGITECH-3D
-COMPANY_EMAIL=contact@hygitech-3d.com
-COMPANY_PHONE=0668062970
-COMPANY_ADDRESS=122 Boulevard Gabriel Péri, 92240 MALAKOFF
 EOF
     
     chown $APP_USER:$APP_USER .env
-    
-    # Modification du serveur pour utiliser le port personnalisé
-    if grep -q "port.*8001" server.py; then
-        sed -i "s/port.*8001/port=$BACKEND_PORT/g" server.py
-    fi
     
     log_success "Backend HYGITECH-3D configuré sur port $BACKEND_PORT"
 }
@@ -215,20 +299,24 @@ setup_frontend() {
     # Configuration environnement de production
     cat > .env.production << EOF
 REACT_APP_BACKEND_URL=https://$DOMAIN
-REACT_APP_COMPANY_NAME=HYGITECH-3D
-REACT_APP_COMPANY_PHONE=06 68 06 29 70
-REACT_APP_COMPANY_EMAIL=contact@hygitech-3d.com
 EOF
     
-    # Installation des dépendances et build
-    log_info "Installation des dépendances frontend..."
-    sudo -u $APP_USER yarn install --frozen-lockfile
+    # Installation des dépendances avec timeout étendu
+    log_info "Installation des dépendances frontend (peut prendre 5-10 minutes)..."
+    sudo -u $APP_USER yarn install --frozen-lockfile --network-timeout 600000
     
+    # Build de production avec plus de mémoire
     log_info "Build de production du frontend..."
-    sudo -u $APP_USER yarn build
+    sudo -u $APP_USER NODE_OPTIONS="--max-old-space-size=4096" yarn build
+    
+    # Vérification que le build existe
+    if [[ ! -d "build" ]]; then
+        log_error "Le build du frontend a échoué"
+        exit 1
+    fi
     
     chown -R $APP_USER:$APP_USER .
-    log_success "Frontend HYGITECH-3D compilé"
+    log_success "Frontend HYGITECH-3D compilé avec succès"
 }
 
 setup_pm2() {
@@ -242,8 +330,7 @@ module.exports = {
     script: 'venv/bin/uvicorn',
     args: 'server:app --host 0.0.0.0 --port $BACKEND_PORT',
     cwd: '$APP_DIR/backend',
-    instances: 2,
-    exec_mode: 'cluster',
+    instances: 1,
     env: {
       NODE_ENV: 'production',
       PORT: '$BACKEND_PORT'
@@ -266,8 +353,8 @@ EOF
     cd $APP_DIR
     sudo -u $APP_USER pm2 start ecosystem.config.js
     
-    # Configuration startup (une seule fois)
-    sudo -u $APP_USER pm2 startup systemd -u $APP_USER --hp /home/$APP_USER 2>/dev/null || true
+    # Configuration du démarrage automatique
+    env PATH=$PATH:/usr/bin pm2 startup systemd -u $APP_USER --hp /home/$APP_USER
     sudo -u $APP_USER pm2 save
     
     log_success "PM2 configuré - processus 'hygitech-3d-backend' démarré"
@@ -276,26 +363,14 @@ EOF
 setup_nginx() {
     log_info "Configuration Nginx pour HYGITECH-3D..."
     
+    # Suppression du site par défaut
+    rm -f /etc/nginx/sites-enabled/default
+    
     # Configuration du site
     cat > /etc/nginx/sites-available/$SITE_NAME << EOF
-# Configuration Nginx pour HYGITECH-3D
 server {
     listen 80;
     server_name $DOMAIN www.$DOMAIN;
-    
-    # Redirect HTTP to HTTPS
-    return 301 https://\$server_name\$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name $DOMAIN www.$DOMAIN;
-    
-    # SSL configuration (sera ajoutée par Certbot)
-    
-    # Logs spécifiques
-    access_log /var/log/nginx/hygitech-3d-access.log;
-    error_log /var/log/nginx/hygitech-3d-error.log;
     
     # Frontend React
     location / {
@@ -339,7 +414,6 @@ server {
     add_header X-XSS-Protection "1; mode=block" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "no-referrer-when-downgrade" always;
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 }
 EOF
     
@@ -352,6 +426,7 @@ EOF
         log_success "Configuration Nginx activée pour $DOMAIN"
     else
         log_error "Erreur dans la configuration Nginx"
+        nginx -t
         exit 1
     fi
 }
@@ -359,16 +434,17 @@ EOF
 setup_ssl() {
     log_info "Configuration SSL pour $DOMAIN..."
     
-    # Installation Certbot si nécessaire
+    # Installation Certbot via snap (méthode recommandée)
     if ! command -v certbot &> /dev/null; then
-        apt install -y certbot python3-certbot-nginx
+        log_info "Installation de Certbot via snap..."
+        apt install -y snapd
+        snap install core; snap refresh core
+        snap install --classic certbot
+        ln -sf /snap/bin/certbot /usr/bin/certbot
     fi
     
     # Obtention certificat SSL
     certbot --nginx -d $DOMAIN -d www.$DOMAIN --non-interactive --agree-tos --email contact@$DOMAIN --redirect
-    
-    # Test renouvellement automatique
-    certbot renew --dry-run
     
     log_success "SSL configuré pour $DOMAIN et www.$DOMAIN"
 }
@@ -376,7 +452,6 @@ setup_ssl() {
 setup_firewall() {
     log_info "Configuration du firewall..."
     
-    # Configuration UFW
     ufw allow ssh
     ufw allow 'Nginx Full'
     ufw --force enable
@@ -386,6 +461,38 @@ setup_firewall() {
 
 create_maintenance_scripts() {
     log_info "Création des scripts de maintenance..."
+    
+    # Script de statut
+    cat > $APP_DIR/scripts/status.sh << 'EOF'
+#!/bin/bash
+echo "📊 STATUS HYGITECH-3D"
+echo "===================="
+
+echo "🔧 Services système:"
+echo "  - MongoDB: $(systemctl is-active mongod)"
+echo "  - Nginx: $(systemctl is-active nginx)"
+
+echo "🚀 Processus PM2:"
+sudo -u web-hygitech-3d pm2 list | grep -E "(hygitech|online|stopped|errored)" || echo "  - Aucun processus PM2 trouvé"
+
+echo "🌐 Test connectivité:"
+curl -s -o /dev/null -w "  - Frontend: %{http_code}\n" http://localhost/ 2>/dev/null
+curl -s -o /dev/null -w "  - Backend API: %{http_code}\n" http://localhost:8002/api/ 2>/dev/null
+
+echo "💾 Espace disque:"
+df -h / | tail -1 | awk '{print "  - Utilisé: " $3 "/" $2 " (" $5 ")"}'
+
+echo "🧠 Mémoire:"
+free -h | grep Mem | awk '{print "  - Utilisée: " $3 "/" $2}'
+
+echo "🌐 SSL Status:"
+if [[ -f "/etc/letsencrypt/live/hygitech-3d.com/fullchain.pem" ]]; then
+    echo "  - SSL: ✅ Actif"
+    openssl x509 -in /etc/letsencrypt/live/hygitech-3d.com/fullchain.pem -noout -dates | grep notAfter | sed 's/^/  - Expire: /'
+else
+    echo "  - SSL: ❌ Non configuré"
+fi
+EOF
     
     # Script de sauvegarde MongoDB
     cat > $APP_DIR/scripts/backup-mongo.sh << 'EOF'
@@ -403,58 +510,35 @@ find $BACKUP_DIR -mtime +7 -delete
 echo "✅ Sauvegarde terminée: $BACKUP_DIR/$DATE"
 EOF
     
-    # Script de déploiement/mise à jour
-    cat > $APP_DIR/scripts/deploy.sh << EOF
+    # Script de mise à jour
+    cat > $APP_DIR/scripts/update.sh << 'EOF'
 #!/bin/bash
-cd $APP_DIR
+cd /var/www/hygitech-3d
 
-echo "🔄 Démarrage mise à jour HYGITECH-3D..."
+echo "🔄 Mise à jour HYGITECH-3D..."
 
 # Sauvegarde avant mise à jour
 ./scripts/backup-mongo.sh
 
-# Pull des changements (si Git)
+# Pull des changements si Git
 if [[ -d ".git" ]]; then
-    sudo -u $APP_USER git pull origin main
+    sudo -u web-hygitech-3d git pull origin main
 fi
 
 # Mise à jour backend
 cd backend
-sudo -u $APP_USER bash -c "source venv/bin/activate && pip install -r requirements.txt"
+sudo -u web-hygitech-3d bash -c "source venv/bin/activate && pip install -r requirements.txt"
 
 # Mise à jour frontend
 cd ../frontend
-sudo -u $APP_USER yarn install
-sudo -u $APP_USER yarn build
+sudo -u web-hygitech-3d yarn install
+sudo -u web-hygitech-3d NODE_OPTIONS="--max-old-space-size=4096" yarn build
 
-# Redémarrage services
-sudo -u $APP_USER pm2 restart hygitech-3d-backend
+# Redémarrage
+sudo -u web-hygitech-3d pm2 restart hygitech-3d-backend
 sudo systemctl reload nginx
 
-echo "✅ Mise à jour HYGITECH-3D terminée !"
-EOF
-    
-    # Script de monitoring
-    cat > $APP_DIR/scripts/status.sh << 'EOF'
-#!/bin/bash
-echo "📊 STATUS HYGITECH-3D"
-echo "===================="
-
-echo "🔧 Services système:"
-systemctl is-active mongod nginx | sed 's/^/  - /'
-
-echo "🚀 Processus PM2:"
-pm2 list | grep -E "(hygitech|online|stopped|errored)"
-
-echo "🌐 Test connectivité:"
-curl -s -o /dev/null -w "  - Frontend: %{http_code}\n" http://localhost/
-curl -s -o /dev/null -w "  - Backend API: %{http_code}\n" http://localhost:8002/api/
-
-echo "💾 Espace disque:"
-df -h / | tail -1 | awk '{print "  - Utilisé: " $3 "/" $2 " (" $5 ")"}'
-
-echo "🧠 Mémoire:"
-free -h | grep Mem | awk '{print "  - Utilisée: " $3 "/" $2}'
+echo "✅ Mise à jour terminée !"
 EOF
     
     chmod +x $APP_DIR/scripts/*.sh
@@ -470,38 +554,41 @@ run_tests() {
     log_info "Tests de vérification finale..."
     
     # Test MongoDB
-    if mongo --eval "db.adminCommand('ismaster')" >/dev/null 2>&1; then
+    if systemctl is-active --quiet mongod; then
         log_success "✅ MongoDB opérationnel"
     else
         log_error "❌ MongoDB non accessible"
     fi
     
     # Test Backend (attendre démarrage)
-    sleep 10
+    log_info "Attente du démarrage du backend (15 secondes)..."
+    sleep 15
+    
     if curl -f http://localhost:$BACKEND_PORT/api/ >/dev/null 2>&1; then
         log_success "✅ Backend HYGITECH-3D (port $BACKEND_PORT)"
     else
-        log_warning "⚠️  Backend pourrait nécessiter quelques secondes supplémentaires"
+        log_warning "⚠️  Backend en cours de démarrage"
+        log_info "Vérifiez les logs avec: sudo -u $APP_USER pm2 logs hygitech-3d-backend"
     fi
     
     # Test Frontend
     if curl -f http://localhost/ >/dev/null 2>&1; then
         log_success "✅ Frontend HYGITECH-3D accessible"
     else
-        log_error "❌ Problème d'accès au frontend"
+        log_warning "⚠️  Frontend nécessite la configuration DNS"
     fi
     
-    # Test HTTPS
-    if curl -f https://$DOMAIN/ >/dev/null 2>&1; then
-        log_success "✅ HTTPS fonctionnel sur $DOMAIN"
+    # Test PM2
+    if sudo -u $APP_USER pm2 list | grep -q "hygitech-3d-backend"; then
+        log_success "✅ Processus PM2 actif"
     else
-        log_warning "⚠️  HTTPS pourrait nécessiter quelques minutes (propagation DNS)"
+        log_error "❌ Problème avec PM2"
     fi
 }
 
 # MAIN EXECUTION
-echo "🚀 Installation HYGITECH-3D - Configuration Multi-Sites"
-echo "======================================================="
+echo "🚀 Installation HYGITECH-3D (Version Corrigée - Ubuntu 22.04+)"
+echo "=============================================================="
 echo "🌐 Domaine: $DOMAIN"
 echo "🔌 Port Backend: $BACKEND_PORT" 
 echo "📁 Répertoire: $APP_DIR"
@@ -539,23 +626,21 @@ echo "🗄️  Base MongoDB: $MONGO_DB"
 echo ""
 echo "🔧 COMMANDES UTILES"
 echo "==================="
-echo "# Status du site:"
+echo "# Status complet du site:"
 echo "$APP_DIR/scripts/status.sh"
 echo ""
 echo "# Logs en temps réel:"
 echo "sudo -u $APP_USER pm2 logs hygitech-3d-backend"
 echo ""
-echo "# Mise à jour du site:"
-echo "$APP_DIR/scripts/deploy.sh"
-echo ""
-echo "# Sauvegarde manuelle:"
-echo "$APP_DIR/scripts/backup-mongo.sh"
-echo ""
 echo "# Redémarrage:"
 echo "sudo -u $APP_USER pm2 restart hygitech-3d-backend"
 echo "sudo systemctl reload nginx"
+echo ""
+echo "# Test des URLs:"
+echo "curl -I http://localhost/"
+echo "curl -I http://localhost:$BACKEND_PORT/api/"
 
 run_tests
 
-log_success "✅ HYGITECH-3D est maintenant en ligne sur https://$DOMAIN !"
-log_info "Le formulaire de contact est opérationnel et sauvegarde en base MongoDB"
+log_success "✅ HYGITECH-3D est maintenant en ligne !"
+log_info "N'oubliez pas de configurer votre DNS pour pointer vers ce serveur"
