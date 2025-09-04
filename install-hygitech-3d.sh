@@ -627,11 +627,15 @@ UPDATE_SCRIPT
 run_tests() {
     log_info "Tests de vérification finale..."
     
-    # Test MongoDB
+    # Test MongoDB avec différentes commandes possibles
     if systemctl is-active --quiet mongod; then
         log_success "✅ MongoDB opérationnel"
+    elif systemctl is-active --quiet mongodb; then
+        log_success "✅ MongoDB opérationnel (service mongodb)"
     else
         log_error "❌ MongoDB non accessible"
+        log_info "Vérification des services MongoDB disponibles:"
+        systemctl list-units --type=service | grep -i mongo || echo "Aucun service MongoDB trouvé"
     fi
     
     # Test Backend (attendre démarrage)
@@ -643,6 +647,10 @@ run_tests() {
     else
         log_warning "⚠️  Backend en cours de démarrage"
         log_info "Vérifiez les logs avec: sudo -u $APP_USER pm2 logs hygitech-3d-backend"
+        
+        # Test direct du backend
+        log_info "Test de connectivité backend:"
+        curl -I http://localhost:$BACKEND_PORT/api/ || echo "Backend non accessible"
     fi
     
     # Test Frontend
@@ -657,6 +665,26 @@ run_tests() {
         log_success "✅ Processus PM2 actif"
     else
         log_error "❌ Problème avec PM2"
+        sudo -u $APP_USER pm2 list || echo "PM2 non disponible"
+    fi
+    
+    # Test de base de données (si MongoDB fonctionne)
+    if command -v mongosh >/dev/null 2>&1; then
+        log_info "Test de connexion MongoDB avec mongosh..."
+        if mongosh --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
+            log_success "✅ Connexion MongoDB fonctionnelle"
+        else
+            log_warning "⚠️  MongoDB installé mais connexion échouée"
+        fi
+    elif command -v mongo >/dev/null 2>&1; then
+        log_info "Test de connexion MongoDB avec mongo..."
+        if mongo --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
+            log_success "✅ Connexion MongoDB fonctionnelle"
+        else
+            log_warning "⚠️  MongoDB installé mais connexion échouée"
+        fi
+    else
+        log_warning "⚠️  Client MongoDB non trouvé"
     fi
 }
 
