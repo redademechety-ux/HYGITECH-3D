@@ -171,22 +171,35 @@ install_system_dependencies() {
     # Installation Node.js avec méthodes multiples
     install_nodejs_robust
     
-    # Installation Yarn (méthode moderne)
+    # Installation Yarn (méthodes multiples)
     if ! command -v yarn &> /dev/null; then
         log_info "Installation de Yarn..."
         
-        # Nettoyage des anciennes installations
-        apt remove -y yarn 2>/dev/null || true
-        
-        # Méthode moderne pour Yarn
-        curl -fsSL https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor -o /etc/apt/keyrings/yarn.gpg
-        echo "deb [signed-by=/etc/apt/keyrings/yarn.gpg] https://dl.yarnpkg.com/debian/ stable main" > /etc/apt/sources.list.d/yarn.list
-        
-        apt update && apt install -y yarn
-        
-        # Vérification
-        yarn --version
-        log_success "Yarn $(yarn --version) installé"
+        # Méthode 1: Via npm (recommandée maintenant)
+        if npm install -g yarn; then
+            if yarn --version; then
+                log_success "Yarn $(yarn --version) installé via npm"
+            fi
+        else
+            log_warning "Installation npm échouée, tentative avec repository Yarn..."
+            
+            # Méthode 2: Repository Yarn (fallback)
+            apt remove -y yarn 2>/dev/null || true
+            
+            if curl -fsSL https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor -o /etc/apt/keyrings/yarn.gpg; then
+                echo "deb [signed-by=/etc/apt/keyrings/yarn.gpg] https://dl.yarnpkg.com/debian/ stable main" > /etc/apt/sources.list.d/yarn.list
+                
+                if apt update && apt install -y yarn; then
+                    if yarn --version; then
+                        log_success "Yarn $(yarn --version) installé via repository"
+                    fi
+                else
+                    log_warning "Yarn non installé, mais npm peut être utilisé à la place"
+                fi
+            else
+                log_warning "Yarn non installé, mais npm peut être utilisé à la place"
+            fi
+        fi
     else
         log_success "Yarn déjà installé: $(yarn --version)"
     fi
@@ -194,10 +207,17 @@ install_system_dependencies() {
     # Installation PM2
     if ! command -v pm2 &> /dev/null; then
         log_info "Installation de PM2..."
-        npm install -g pm2
-        log_success "PM2 installé"
+        if npm install -g pm2; then
+            if pm2 --version; then
+                log_success "PM2 $(pm2 --version) installé"
+            else
+                log_error "PM2 installé mais pas fonctionnel"
+            fi
+        else
+            log_error "Échec de l'installation de PM2"
+        fi
     else
-        log_success "PM2 déjà installé"
+        log_success "PM2 déjà installé: $(pm2 --version)"
     fi
     
     # Installation Python avec gestion des versions spécifiques
