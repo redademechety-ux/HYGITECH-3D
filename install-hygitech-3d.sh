@@ -99,6 +99,8 @@ install_nodejs_robust() {
     
     # Méthode 1: NodeSource (recommandée)
     if ! command -v node &> /dev/null; then
+        # Nettoyage préventif des installations ratées
+        cleanup_failed_nodejs_installation
         log_info "Tentative 1: Installation via NodeSource..."
         
         # Téléchargement et installation de la clé GPG NodeSource
