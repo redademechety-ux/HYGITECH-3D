@@ -71,6 +71,93 @@ check_port_available() {
     log_success "Port $BACKEND_PORT disponible"
 }
 
+install_nodejs_robust() {
+    log_info "Installation robuste de Node.js 18..."
+    
+    # Méthode 1: NodeSource (recommandée)
+    if ! command -v node &> /dev/null; then
+        log_info "Tentative 1: Installation via NodeSource..."
+        
+        # Téléchargement et installation de la clé GPG NodeSource
+        if curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg; then
+            # Ajout du repository NodeSource
+            NODE_MAJOR=18
+            
+            # Détecter la distribution Ubuntu
+            if [ -f /etc/os-release ]; then
+                . /etc/os-release
+                DISTRO_CODENAME=$VERSION_CODENAME
+            else
+                DISTRO_CODENAME="jammy"  # Fallback pour Ubuntu 22.04
+            fi
+            
+            # Fallback pour les versions non supportées
+            case $DISTRO_CODENAME in
+                "focal"|"jammy"|"noble") 
+                    ;;
+                *)
+                    log_warning "Version Ubuntu $DISTRO_CODENAME non officiellement supportée, utilisation de jammy"
+                    DISTRO_CODENAME="jammy"
+                    ;;
+            esac
+            
+            echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x $DISTRO_CODENAME main" > /etc/apt/sources.list.d/nodesource.list
+            
+            if apt update && apt install -y nodejs; then
+                if node --version && npm --version; then
+                    log_success "Node.js $(node --version) et npm $(npm --version) installés via NodeSource"
+                    return 0
+                fi
+            fi
+        fi
+        
+        log_warning "Méthode NodeSource échouée, tentative avec Snap..."
+        
+        # Méthode 2: Snap (fallback)
+        if ! command -v snap &> /dev/null; then
+            apt install -y snapd
+            systemctl enable snapd
+            systemctl start snapd
+            sleep 10
+        fi
+        
+        if snap install node --classic; then
+            # Créer des liens symboliques
+            ln -sf /snap/bin/node /usr/local/bin/node
+            ln -sf /snap/bin/npm /usr/local/bin/npm
+            
+            if node --version && npm --version; then
+                log_success "Node.js $(node --version) installé via Snap"
+                return 0
+            fi
+        fi
+        
+        log_warning "Méthode Snap échouée, tentative avec NVM..."
+        
+        # Méthode 3: NVM (dernière tentative)
+        if curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash; then
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            
+            if nvm install 18 && nvm use 18 && nvm alias default 18; then
+                # Créer des liens globaux
+                ln -sf "$NVM_DIR/versions/node/$(nvm version)/bin/node" /usr/local/bin/node
+                ln -sf "$NVM_DIR/versions/node/$(nvm version)/bin/npm" /usr/local/bin/npm
+                
+                if node --version && npm --version; then
+                    log_success "Node.js $(node --version) installé via NVM"
+                    return 0
+                fi
+            fi
+        fi
+        
+        log_error "Impossible d'installer Node.js avec toutes les méthodes. Installation manuelle requise."
+        exit 1
+    else
+        log_success "Node.js déjà installé: $(node --version)"
+    fi
+}
+
 install_system_dependencies() {
     log_info "Installation des dépendances système (méthode moderne)..."
     
