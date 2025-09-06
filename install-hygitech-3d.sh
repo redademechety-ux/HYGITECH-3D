@@ -520,47 +520,127 @@ download_source_code() {
     log_info "Récupération du code source HYGITECH-3D..."
     
     if [[ -n "$GITHUB_REPO" ]]; then
-        # Clone depuis GitHub
+        # Vérifier que l'URL GitHub est valide
+        if ! curl -s --head "$GITHUB_REPO" | head -1 | grep -q "200 OK"; then
+            log_warning "URL GitHub non accessible : $GITHUB_REPO"
+            log_info "Tentative avec URL alternative..."
+            
+            # Essayer différents formats d'URL
+            if [[ "$GITHUB_REPO" == *".git" ]]; then
+                GITHUB_REPO_ALT="${GITHUB_REPO%.git}"
+            else
+                GITHUB_REPO_ALT="${GITHUB_REPO}.git"
+            fi
+            
+            if ! curl -s --head "$GITHUB_REPO_ALT" | head -1 | grep -q "200 OK"; then
+                log_error "Repository GitHub inaccessible. Passage en mode manuel."
+                GITHUB_REPO=""
+            else
+                GITHUB_REPO="$GITHUB_REPO_ALT"
+                log_success "URL alternative trouvée : $GITHUB_REPO"
+            fi
+        fi
+    fi
+    
+    if [[ -n "$GITHUB_REPO" ]]; then
+        # Clone depuis GitHub avec gestion robuste
         if [[ -d "$APP_DIR/.git" ]]; then
             log_info "Repository existant, mise à jour..."
             cd $APP_DIR
-            sudo -u $APP_USER git pull origin main || sudo -u $APP_USER git pull origin master
-        else
+            chown -R $APP_USER:$APP_USER $APP_DIR
+            sudo -u $APP_USER git pull origin main 2>/dev/null || sudo -u $APP_USER git pull origin master 2>/dev/null || {
+                log_warning "Échec du git pull, re-clone du repository..."
+                cd /tmp
+                rm -rf $APP_DIR/.git
+            }
+        fi
+        
+        if [[ ! -d "$APP_DIR/.git" ]]; then
             log_info "Clone du repository depuis GitHub..."
             
-            # Créer un répertoire temporaire pour le clone
-            TEMP_DIR="/tmp/hygitech-clone-$$"
+            # Méthode 1: Clone direct dans le répertoire final (avec nettoyage préalable)
+            rm -rf $APP_DIR/* $APP_DIR/.* 2>/dev/null || true
             
-            # Clone dans le répertoire temporaire
-            if sudo -u $APP_USER git clone $GITHUB_REPO $TEMP_DIR; then
-                log_info "Clone réussi, déplacement des fichiers..."
+            if git clone $GITHUB_REPO $APP_DIR; then
+                # Ajuster les permissions
+                chown -R $APP_USER:$APP_USER $APP_DIR
                 
-                # Déplacer le contenu du repository vers le répertoire final
-                sudo -u $APP_USER cp -r $TEMP_DIR/* $APP_DIR/ 2>/dev/null || true
-                sudo -u $APP_USER cp -r $TEMP_DIR/.* $APP_DIR/ 2>/dev/null || true
-                
-                # Nettoyer le répertoire temporaire
-                rm -rf $TEMP_DIR
-                
-                # Vérifier que les fichiers sont bien placés
+                # Vérifier la structure
                 if [[ -d "$APP_DIR/frontend" && -d "$APP_DIR/backend" ]]; then
-                    log_success "Code cloné depuis GitHub avec succès"
+                    log_success "Code cloné depuis GitHub avec succès (méthode directe)"
                 else
-                    log_warning "Structure inattendue après clone, tentative de correction..."
+                    log_warning "Structure inattendue, recherche de sous-répertoires..."
+                    # Chercher dans les sous-répertoires
+                    FOUND_FRONTEND=$(find $APP_DIR -name "frontend" -type d | head -1)
+                    FOUND_BACKEND=$(find $APP_DIR -name "backend" -type d | head -1)
                     
-                    # Vérifier s'il y a un sous-dossier avec le nom du repo
-                    REPO_NAME=$(basename $GITHUB_REPO .git)
-                    if [[ -d "$APP_DIR/$REPO_NAME" ]]; then
-                        log_info "Correction de la structure des dossiers..."
-                        sudo -u $APP_USER mv $APP_DIR/$REPO_NAME/* $APP_DIR/ 2>/dev/null || true
-                        sudo -u $APP_USER mv $APP_DIR/$REPO_NAME/.* $APP_DIR/ 2>/dev/null || true
-                        sudo -u $APP_USER rmdir $APP_DIR/$REPO_NAME 2>/dev/null || true
-                        log_success "Structure des dossiers corrigée"
+                    if [[ -n "$FOUND_FRONTEND" && -n "$FOUND_BACKEND" ]]; then
+                        PARENT_DIR=$(dirname "$FOUND_FRONTEND")
+                        if [[ "$PARENT_DIR" != "$APP_DIR" ]]; then
+                            log_info "Correction de la structure : déplacement depuis $PARENT_DIR..."
+                            
+                            # Créer un backup temporaire
+                            TEMP_BACKUP="/tmp/hygitech-backup-$$"
+                            cp -r $PARENT_DIR $TEMP_BACKUP
+                            
+                            # Vider le répertoire principal
+                            rm -rf $APP_DIR/* $APP_DIR/.* 2>/dev/null || true
+                            
+                            # Déplacer les fichiers au bon endroit
+                            cp -r $TEMP_BACKUP/* $APP_DIR/ 2>/dev/null || true
+                            cp -r $TEMP_BACKUP/.* $APP_DIR/ 2>/dev/null || true
+                            
+                            # Nettoyer
+                            rm -rf $TEMP_BACKUP
+                            chown -R $APP_USER:$APP_USER $APP_DIR
+                            
+                            log_success "Structure corrigée automatiquement"
+                        fi
+                    else
+                        log_error "Impossible de trouver frontend et backend dans le repository"
+                        GITHUB_REPO=""
                     fi
                 fi
             else
-                log_error "Échec du clone GitHub"
-                GITHUB_REPO=""
+                log_warning "Échec du clone direct, tentative avec répertoire temporaire..."
+                
+                # Méthode 2: Clone dans un répertoire temporaire puis déplacement
+                TEMP_DIR="/tmp/hygitech-clone-$$"
+                rm -rf $TEMP_DIR
+                
+                if git clone $GITHUB_REPO $TEMP_DIR; then
+                    log_info "Clone temporaire réussi, déplacement des fichiers..."
+                    
+                    # Chercher frontend et backend dans l'arborescence
+                    FOUND_FRONTEND=$(find $TEMP_DIR -name "frontend" -type d | head -1)
+                    FOUND_BACKEND=$(find $TEMP_DIR -name "backend" -type d | head -1)
+                    
+                    if [[ -n "$FOUND_FRONTEND" && -n "$FOUND_BACKEND" ]]; then
+                        SOURCE_DIR=$(dirname "$FOUND_FRONTEND")
+                        log_info "Fichiers trouvés dans : $SOURCE_DIR"
+                        
+                        # Vider le répertoire de destination
+                        rm -rf $APP_DIR/* $APP_DIR/.* 2>/dev/null || true
+                        
+                        # Copier les fichiers
+                        cp -r $SOURCE_DIR/* $APP_DIR/ 2>/dev/null || true
+                        cp -r $SOURCE_DIR/.* $APP_DIR/ 2>/dev/null || true
+                        
+                        # Ajuster les permissions
+                        chown -R $APP_USER:$APP_USER $APP_DIR
+                        
+                        log_success "Code copié depuis le repository temporaire"
+                    else
+                        log_error "Frontend/Backend non trouvés dans le repository temporaire"
+                        GITHUB_REPO=""
+                    fi
+                    
+                    # Nettoyer le répertoire temporaire
+                    rm -rf $TEMP_DIR
+                else
+                    log_error "Impossible de cloner le repository GitHub"
+                    GITHUB_REPO=""
+                fi
             fi
         fi
     fi
