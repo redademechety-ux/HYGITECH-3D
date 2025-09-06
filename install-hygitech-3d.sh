@@ -90,12 +90,47 @@ install_system_dependencies() {
         
         # Ajout du repository NodeSource
         NODE_MAJOR=18
-        echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
+        
+        # Détecter la distribution Ubuntu
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            DISTRO_CODENAME=$VERSION_CODENAME
+        else
+            DISTRO_CODENAME="jammy"  # Fallback pour Ubuntu 22.04
+        fi
+        
+        # Fallback pour les versions non supportées
+        case $DISTRO_CODENAME in
+            "focal"|"jammy"|"noble") 
+                ;;
+            *)
+                log_warning "Version Ubuntu $DISTRO_CODENAME non officiellement supportée, utilisation de jammy"
+                DISTRO_CODENAME="jammy"
+                ;;
+        esac
+        
+        echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x $DISTRO_CODENAME main" > /etc/apt/sources.list.d/nodesource.list
         
         apt update && apt install -y nodejs
         
-        # Vérification
-        node --version && npm --version
+        # Vérification avec gestion des erreurs
+        if node --version && npm --version; then
+            log_success "Node.js $(node --version) et npm $(npm --version) installés"
+        else
+            log_error "Échec de l'installation Node.js, tentative avec méthode alternative..."
+            # Installation via snap comme fallback
+            apt install -y snapd
+            snap install node --classic
+            ln -sf /snap/bin/node /usr/local/bin/node
+            ln -sf /snap/bin/npm /usr/local/bin/npm
+            
+            if node --version && npm --version; then
+                log_success "Node.js $(node --version) installé via Snap"
+            else
+                log_error "Impossible d'installer Node.js. Installation manuelle requise."
+                exit 1
+            fi
+        fi
         log_success "Node.js $(node --version) installé"
     else
         log_success "Node.js déjà installé: $(node --version)"
