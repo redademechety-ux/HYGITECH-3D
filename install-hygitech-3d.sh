@@ -71,6 +71,29 @@ check_port_available() {
     log_success "Port $BACKEND_PORT disponible"
 }
 
+cleanup_failed_nodejs_installation() {
+    log_info "Nettoyage des installations Node.js précédentes ratées..."
+    
+    # Arrêter les processus qui pourraient bloquer
+    pkill -f node 2>/dev/null || true
+    pkill -f npm 2>/dev/null || true
+    
+    # Supprimer les paquets conflictuels
+    apt remove -y nodejs npm node 2>/dev/null || true
+    apt purge -y nodejs npm node 2>/dev/null || true
+    apt autoremove -y 2>/dev/null || true
+    
+    # Nettoyer les repositories et clés
+    rm -f /etc/apt/sources.list.d/nodesource.list* 2>/dev/null || true
+    rm -f /etc/apt/keyrings/nodesource.gpg* 2>/dev/null || true
+    rm -f /usr/share/keyrings/nodesource.gpg* 2>/dev/null || true
+    
+    # Mise à jour après nettoyage
+    apt update 2>/dev/null || true
+    
+    log_success "Nettoyage terminé"
+}
+
 install_nodejs_robust() {
     log_info "Installation robuste de Node.js 18..."
     
