@@ -48,18 +48,59 @@ check_root() {
 
 check_github_repo() {
     if [[ -n "$GITHUB_REPO" ]]; then
-        log_info "Test de connectivité au repository GitHub..."
-        if curl -s --head --max-time 10 "$GITHUB_REPO" | grep -q "200 OK"; then
+        log_info "Repository GitHub fourni : $GITHUB_REPO"
+        
+        # Vérification basique de l'URL GitHub
+        if [[ "$GITHUB_REPO" =~ ^https://github\.com/.+$ ]]; then
+            log_success "Format d'URL GitHub valide"
+        else
+            log_warning "Format d'URL GitHub invalide, tentative de correction..."
+            if [[ "$GITHUB_REPO" =~ ^[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+$ ]]; then
+                GITHUB_REPO="https://github.com/$GITHUB_REPO.git"
+                log_success "URL corrigée : $GITHUB_REPO"
+            else
+                log_error "Format d'URL GitHub non reconnu"
+                exit 1
+            fi
+        fi
+        
+        # Vérification de l'accessibilité du repository
+        log_info "Vérification de l'accessibilité du repository..."
+        if curl -s --connect-timeout 10 --head "$GITHUB_REPO" | head -1 | grep -q "200\|301\|302"; then
             log_success "Repository GitHub accessible"
         else
-            log_warning "Repository GitHub non accessible, passage en mode manuel"
-            GITHUB_REPO=""
+            log_warning "Repository GitHub non accessible directement"
+            
+            # Essayer différentes variantes d'URL
+            REPO_VARIANTS=(
+                "$GITHUB_REPO"
+                "${GITHUB_REPO%.git}.git"
+                "${GITHUB_REPO%.git}"
+            )
+            
+            FOUND_WORKING_URL=""
+            for variant in "${REPO_VARIANTS[@]}"; do
+                log_info "Test de $variant..."
+                if curl -s --connect-timeout 5 --head "$variant" | head -1 | grep -q "200\|301\|302"; then
+                    FOUND_WORKING_URL="$variant"
+                    break
+                fi
+            done
+            
+            if [[ -n "$FOUND_WORKING_URL" ]]; then
+                GITHUB_REPO="$FOUND_WORKING_URL"
+                log_success "URL GitHub fonctionnelle trouvée : $GITHUB_REPO"
+            else
+                log_error "Aucune variante d'URL GitHub accessible"
+                log_warning "Passage en mode manuel - vous devrez copier les fichiers manuellement"
+                GITHUB_REPO=""
+            fi
         fi
-    fi
-    
-    if [[ -z "$GITHUB_REPO" ]]; then
-        log_warning "Mode installation manuelle activé"
-        log_info "Les fichiers doivent être placés dans $APP_DIR"
+    else
+        log_info "Aucun repository GitHub fourni"
+        log_info "Usage: $0 https://github.com/USERNAME/REPO.git"
+        log_info "Ou: $0 USERNAME/REPO"
+        log_warning "Installation en mode manuel - copie de fichiers requise"
     fi
 }
 
