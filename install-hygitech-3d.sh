@@ -220,6 +220,30 @@ install_system_dependencies() {
         log_success "PM2 déjà installé: $(pm2 --version)"
     fi
     
+    # Validation finale des outils installés
+    log_info "Validation des outils installés..."
+    
+    echo ""
+    log_info "Résumé des versions installées:"
+    echo "  Node.js: $(node --version 2>/dev/null || echo 'NON INSTALLÉ')"
+    echo "  npm: $(npm --version 2>/dev/null || echo 'NON INSTALLÉ')"
+    echo "  Yarn: $(yarn --version 2>/dev/null || echo 'NON INSTALLÉ (npm utilisable)')"
+    echo "  PM2: $(pm2 --version 2>/dev/null || echo 'NON INSTALLÉ')"
+    echo ""
+    
+    # Vérifications critiques
+    if ! command -v node &> /dev/null || ! command -v npm &> /dev/null; then
+        log_error "Node.js ou npm manquant. Installation impossible."
+        exit 1
+    fi
+    
+    if ! command -v pm2 &> /dev/null; then
+        log_error "PM2 manquant. Installation impossible."
+        exit 1
+    fi
+    
+    log_success "Tous les outils critiques sont installés et fonctionnels"
+    
     # Installation Python avec gestion des versions spécifiques
     if ! command -v python3 &> /dev/null; then
         log_info "Installation de Python 3..."
