@@ -651,15 +651,40 @@ download_source_code() {
         log_info "  $APP_DIR/frontend/ (code React avec package.json)"
         log_info "  $APP_DIR/backend/ (code FastAPI avec requirements.txt)"
         echo ""
-        echo "Commandes pour copier depuis votre machine locale :"
-        echo "  scp -r ./frontend root@$(hostname -I | awk '{print $1}'):$APP_DIR/"
-        echo "  scp -r ./backend root@$(hostname -I | awk '{print $1}'):$APP_DIR/"
+        echo "=== OPTION 1: Copie depuis GitHub (RECOMMANDÉE) ==="
+        echo "cd /tmp"
+        echo "git clone https://github.com/VOTRE-USERNAME/hygitech-3d.git hygitech-source"
+        echo "cp -r hygitech-source/frontend $APP_DIR/"
+        echo "cp -r hygitech-source/backend $APP_DIR/"
+        echo "cp hygitech-source/ecosystem.config.js $APP_DIR/ 2>/dev/null || true"
+        echo "chown -R $APP_USER:$APP_USER $APP_DIR"
+        echo "rm -rf hygitech-source"
         echo ""
-        echo "Ou utilisez MobaXterm/FileZilla pour glisser-déposer les dossiers"
+        echo "=== OPTION 2: Copie depuis votre machine locale ==="
+        echo "scp -r ./frontend root@$(hostname -I | awk '{print $1}'):$APP_DIR/"
+        echo "scp -r ./backend root@$(hostname -I | awk '{print $1}'):$APP_DIR/"
         echo ""
-        echo "Si les dossiers sont dans un sous-répertoire (ex: $APP_DIR/hygitech-3d/), utilisez :"
-        echo "  cd $APP_DIR && mv hygitech-3d/* . && mv hygitech-3d/.* . 2>/dev/null || true && rmdir hygitech-3d"
+        echo "=== OPTION 3: Correction automatique si structure imbriquée ==="
+        echo "Si les dossiers sont dans un sous-répertoire (ex: $APP_DIR/hygitech-3d/):"
+        echo "cd $APP_DIR && mv hygitech-3d/* . && mv hygitech-3d/.* . 2>/dev/null || true && rmdir hygitech-3d"
         echo ""
+        
+        # Tentative automatique de clone si pas de repository fourni
+        log_info "Tentative de détection automatique du repository..."
+        if [[ -f "/tmp/hygitech-3d.git" ]] || curl -s https://github.com/VOTRE-USERNAME/hygitech-3d >/dev/null 2>&1; then
+            read -p "Voulez-vous que je tente un clone automatique depuis GitHub ? (y/N): " AUTO_CLONE
+            if [[ "$AUTO_CLONE" =~ ^[Yy]$ ]]; then
+                read -p "Entrez l'URL de votre repository GitHub: " MANUAL_REPO
+                if [[ -n "$MANUAL_REPO" ]]; then
+                    GITHUB_REPO="$MANUAL_REPO"
+                    log_info "Tentative de clone avec : $GITHUB_REPO"
+                    # Relancer la fonction récursivement avec le nouveau repo
+                    download_source_code
+                    return
+                fi
+            fi
+        fi
+        
         read -p "Appuyez sur Entrée une fois les fichiers copiés dans $APP_DIR..."
     fi
     
